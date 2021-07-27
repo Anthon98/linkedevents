@@ -17,7 +17,6 @@ class TestEventAPI(APITestCase):
 
     def setUp(self):
         user_model = get_user_model()
-        self.user = user_model.objects.create(username='testuser')
 
         # this is the default data source when users POST through API
         self.system_data_source = DataSource.objects.create(
@@ -45,6 +44,12 @@ class TestEventAPI(APITestCase):
             id='eeds',
             name='external-editable-data-source',
             api_key="test_api_key_4",
+            user_editable=True,
+        )
+        self.yksilo = DataSource.objects.create(
+            id='yksilo',
+            name='Yksityishenkilöt',
+            api_key="test_api_key_5",
             user_editable=True,
         )
         self.org_1 = Organization.objects.create(
@@ -79,6 +84,10 @@ class TestEventAPI(APITestCase):
             name='org-5',
             origin_id='org-5',
             data_source=self.non_editable_data_source,
+        )
+        self.org_6 = Organization.objects.create(
+            data_source=self.yksilo,
+            origin_id='2000'
         )
         # org_5 owns the external data source
         self.org_5.owned_systems.add(self.external_editable_data_source)
@@ -153,6 +162,8 @@ class TestEventAPI(APITestCase):
             publisher=self.org_1,
             position=Point(1, 1),
         )
+
+        self.user = user_model.objects.create(username='testuser')
 
     def test_event_list_with_show_all_filter(self):
         # test with public request
@@ -383,13 +394,20 @@ class TestEventAPI(APITestCase):
         response = self.client.post(url, [data_1, data_2], format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @override_settings(DEBUG=True)
     def test_random_user_bulk_update(self):
         url = reverse('event-list')
+        with open("url.html", "w") as f:
+            f.write(url)
         location_id = reverse('place-detail', kwargs={'pk': self.place.id})
+        with open("location.html", "w") as f:
+            f.write(location_id)
         data = self.make_complex_event_dict(self.system_data_source, self.org_1, location_id, self.languages)
 
         self.client.force_authenticate(self.user)
         response = self.client.put(url, [data], format='json')
+        with open("response.html", "w") as f:
+            f.write(response.content.decode())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_admin_get_own_public_event(self):

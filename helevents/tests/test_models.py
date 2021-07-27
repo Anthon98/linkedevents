@@ -8,8 +8,8 @@ from ..models import User
 class TestUser(TestCase):
 
     def setUp(self):
-        self.user = User.objects.create(username='testuser')
         data_source = DataSource.objects.create(id='ds', name='data-source')
+        yksilo = DataSource.objects.create(id='yksilo', name='Yksityishenkilöt')
 
         self.org_1 = Organization.objects.create(
             data_source=data_source,
@@ -19,6 +19,11 @@ class TestUser(TestCase):
             data_source=data_source,
             origin_id='org-2',
             replaced_by=self.org_1,
+        )
+        self.org_3 = Organization.objects.create(
+            data_source=yksilo,
+            origin_id='2000',
+            replaced_by=self.org_2
         )
         self.org = Organization.objects.create(
             name='org',
@@ -38,6 +43,7 @@ class TestUser(TestCase):
             parent=self.org,
             internal_type=Organization.AFFILIATED,
         )
+        self.user = User.objects.create(username='testuser')
 
     def test_get_default_organization(self):
         self.org_1.admin_users.add(self.user)
@@ -48,6 +54,7 @@ class TestUser(TestCase):
         self.org_2.admin_users.add(self.user)
         org = self.user.get_default_organization()
         self.assertIsNone(org)
+        #self.assertEqual(org, self.org_3)
 
     def test_is_admin(self):
         self.org.admin_users.add(self.user)

@@ -34,13 +34,15 @@ URL = "http://localhost"
 DATETIME = (timezone.now() + timedelta(days=1)).isoformat().replace('+00:00', 'Z')
 
 OTHER_DATA_SOURCE_ID = "testotherdatasourceid"
-
+YKSILO_ID = "yksilo"
 
 # Django test harness tries to serialize DB in order to support transactions
 # within tests. (It restores the snapshot after such tests).
 # This fails with modeltranslate, as the serialization is done before
 # sync_translation_fields has a chance to run. Thus the fields are missing
 # and serialization fails horribly.
+
+
 @pytest.fixture(scope='session')
 def django_db_modify_db_settings(django_db_modify_db_settings_xdist_suffix):
     settings.DATABASES['default']['TEST']['SERIALIZE'] = False
@@ -95,6 +97,15 @@ def other_data_source():
     return DataSource.objects.create(
         id=OTHER_DATA_SOURCE_ID,
         api_key="test_api_key2"
+    )
+
+
+@pytest.mark.django_db
+@pytest.fixture
+def other_other_data_source():
+    return DataSource.objects.create(
+        id=YKSILO_ID,
+        api_key="test_api_key3"
     )
 
 
@@ -176,6 +187,20 @@ def organization3(other_data_source, user2):
 
 @pytest.mark.django_db
 @pytest.fixture
+def organization4(other_other_data_source, user2):
+    org, created = Organization.objects.get_or_create(
+        id=other_other_data_source.id + ':2000',
+        origin_id='yksilo',
+        name="Yksityishenkilöt",
+        data_source=other_other_data_source,
+    )
+    org.admin_users.add(user2)
+    org.save()
+    return org
+
+
+@pytest.mark.django_db
+@pytest.fixture
 def offer(event2):
     return Offer.objects.create(event=event2, is_free=True)
 
@@ -201,7 +226,8 @@ def make_minimal_event_dict(make_keyword_id):
                     'info_url': {'en': URL, 'sv': URL, 'fi': URL}
                 }
             ],
-            'publisher': organization.id
+            'publisher': organization.id,
+            'is_virtualevent': False
         }
 
     return _make_minimal_event_dict
@@ -540,7 +566,7 @@ def make_complex_event_dict(make_keyword_id):
                 {'name': TEXT_EN, 'link': URL, 'language': 'en'},
             ],
             'videos': [
-                {'name': TEXT_FI, 'url': URL, 'alt_text': TEXT_FI},
+                {'name': {'fi': TEXT_FI}, 'url': URL, 'alt_text': {'fi': TEXT_FI}},
             ],
             'offers': [
                 {
@@ -569,6 +595,9 @@ def make_complex_event_dict(make_keyword_id):
             'provider_contact_info': {'en': TEXT_EN, 'sv': TEXT_SV, 'fi': TEXT_FI},
             'audience_min_age': 5,
             'audience_max_age': 15,
+            'sub_event_type': None,
+            'is_virtualevent': False,
+            'virtualevent_url': URL,
         }
 
     return _make_complex_event_dict

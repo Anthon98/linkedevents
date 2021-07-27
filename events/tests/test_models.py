@@ -17,11 +17,26 @@ class TestImage(TestCase):
             api_key="test_api_key",
             user_editable=True,
         )
+
+        self.data_source2 = DataSource.objects.create(
+            id='yksilo',
+            name='Yksityiskäyttäjät',
+            api_key="test_api_key2",
+            user_editable=True,
+        )
+
         self.org = Organization.objects.create(
             name='org',
             origin_id='org',
             data_source=self.data_source,
         )
+
+        self.org2 = Organization.objects.create(
+            name='Yksityiskäyttäjät',
+            origin_id='2000',
+            data_source=self.data_source2,
+        )
+
         self.image = Image.objects.create(
             name='image',
             data_source=self.data_source,
