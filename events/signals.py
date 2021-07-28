@@ -4,7 +4,7 @@ from django.core.mail import send_mail
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django_orghierarchy.models import Organization
-from events.models import Event
+from events.models import Event, DataSource
 from notifications.models import (NotificationType, NotificationTemplateException, render_notification_template)
 from smtplib import SMTPException
 
@@ -56,9 +56,22 @@ def organization_post_save(sender, instance, created, **kwargs):
 def user_post_save(sender, instance, created, **kwargs):
     if created:
         User = get_user_model()
-        org = Organization.objects.get(id='yksilo:2000')
+        try:
+            yksilo_ds = DataSource.objects.get(id='yksilo')
+        except DataSource.DoesNotExist:
+            yksilo_ds = DataSource(
+                id='yksilo', name='Yksityishenkilöihin liittyvä yleisdata', user_editable=True)
+            yksilo_ds.save()
+
+        try:
+            org = Organization.objects.get(id='yksilo:2000')
+        except Organization.DoesNotExist:
+            org = Organization(data_source=yksilo_ds, origin_id='2000')
+            org.save()
+
         org.private_users.add(instance)
-        org.save()
+        org.save()  # Save after adding / modifying the private_users attribute.
+
         recipient_list = [item[0] for item in User.objects.filter(is_superuser=True).values_list('email')]
         notification_type = NotificationType.USER_CREATED
         context = {'user': instance}
