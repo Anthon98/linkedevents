@@ -201,7 +201,8 @@ def make_minimal_event_dict(make_keyword_id):
                     'info_url': {'en': URL, 'sv': URL, 'fi': URL}
                 }
             ],
-            'publisher': organization.id
+            'publisher': organization.id,
+            'is_virtualevent': False
         }
 
     return _make_minimal_event_dict
