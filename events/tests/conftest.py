@@ -540,7 +540,7 @@ def make_complex_event_dict(make_keyword_id):
                 {'name': TEXT_EN, 'link': URL, 'language': 'en'},
             ],
             'videos': [
-                {'name': TEXT_FI, 'url': URL, 'alt_text': TEXT_FI},
+                {'name': {'fi': TEXT_FI}, 'url': URL, 'alt_text': {'fi': TEXT_FI}},
             ],
             'offers': [
                 {
@@ -569,6 +569,9 @@ def make_complex_event_dict(make_keyword_id):
             'provider_contact_info': {'en': TEXT_EN, 'sv': TEXT_SV, 'fi': TEXT_FI},
             'audience_min_age': 5,
             'audience_max_age': 15,
+            'sub_event_type': None,
+            'is_virtualevent': False,
+            'virtualevent_url': URL,
         }
 
     return _make_complex_event_dict
