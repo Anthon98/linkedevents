@@ -1127,10 +1127,12 @@ class ImageSerializer(LinkedEventsSerializer):
     def validate(self, data):
         # name the image after the file, if name was not provided
         if 'name' not in data or not data['name']:
+            data['name'] = {'fi': None}
             if 'url' in data:
                 data['name']['fi'] = str(data['url']).rsplit('/', 1)[-1]
             if 'image' in data:
                 data['name']['fi'] = str(data['image']).rsplit('/', 1)[-1]
+
         super().validate(data)
         return data
     
