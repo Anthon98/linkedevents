@@ -30,17 +30,17 @@ def rdf_funcs(graph, functype, subj=None, predic=None) -> dict:
     if functype == 'objects':
         for obj in graph.objects(subject=subj, predicate=predic):
             result.update(dict({str(obj.language): str(obj.value)}))
+
     return result
 
 
 @register_importer
 class NewJupoImporter(Importer):
-    name = "jupo_new"
+    name = "jupo"
     supported_languages = ['fi', 'sv', 'en']
 
 
     def setup(self) -> None:
-
         # Creating the YSO, JUPO and the Public DataSource for Organizations model.
         data_source_info = {
             'yso': 'Yleinen suomalainen ontologia',
@@ -131,9 +131,20 @@ class NewJupoImporter(Importer):
                 # Gather labels: altLabel, prefLabel.
                 altLabel = rdf_funcs(graph, "objects", subj_uriRef, SKOS.altLabel)
                 prefLabel = rdf_funcs(graph, "objects", subj_uriRef, SKOS.prefLabel)
+                
+                # Some might be deprecated but have no replacement.
+                deprecated = dict({'deprecated': [False, None]})
 
-                processed.update(dict({formatted_onto: [altLabel, prefLabel, subj_type, subj_id]}))
-            
+                if (subj_uriRef, OWL.deprecated, None) in graph:
+                    deprecated['deprecated'][0] = True
+                    for subj_uriRef, _, object in graph.triples((subj_uriRef, DCTERMS.isReplacedBy, None)):
+                        subj_type, subj_id = subj_uriRef.split('/')[-2:]
+                        formatted_obj = "%s:%s" % (subj_type, subj_id)
+                        deprecated['deprecated'][1] = formatted_obj
+                        break
+
+                processed.update(dict({formatted_onto: [altLabel, prefLabel, subj_type, subj_id, deprecated]}))
+
         return processed
 
 
@@ -166,6 +177,7 @@ class NewJupoImporter(Importer):
                 keyword.name_fi = graph[value][1]['fi']
                 keyword.name_sv = graph[value][1]['sv']
                 keyword.name_en = graph[value][1]['en']
+                keyword.deprecated = graph[value][4]['deprecated'][0]
                 keyword.save()
 
                 alts = []
@@ -174,7 +186,7 @@ class NewJupoImporter(Importer):
                     alt_obj = graph[value][0][alt_lang]
                     cur_obj = KeywordLabel.objects.filter(name=alt_obj, language_id=alt_lang).first()
                     '''
-                    # An alternative line in case cur_obj does return more than 1 object (clones), but this should never be the case due to
+                    An alternative line in case cur_obj does return more than 1 object (clones), but this should never be the case due to
                     duplicate prevention by Django.
 
                     for obj in objs.iterator():
@@ -189,31 +201,59 @@ class NewJupoImporter(Importer):
 
         except Exception as e:
             logger.error(e)
+        
+        return graph
 
  
     def pre_process_kw(self, graph) -> dict:
         ''' pre-process stage checks for data changes. 
             If data has not changed, we remove it from the dict data.'''
         
-        to_be_changed = []
+        to_discard = []
         for formatted_onto in graph:
             try:
                 has_val = Keyword.objects.get(id=formatted_onto)
                 if has_val:
-                    to_be_changed.append(formatted_onto)
+                    # ID exists, but has deprecated or replacement changed?
+                    # Changing words would be fatal and JUPO probably doesn't do this anyway.
+
+                    changed = False
+
+                    if has_val.deprecated != graph[formatted_onto][4]['deprecated'][0] or has_val.replaced_by_id != graph[formatted_onto][4]['deprecated'][1]:
+                        changed = True
+
+                    if changed == False:
+                        to_discard.append(formatted_onto)
+
             except ObjectDoesNotExist:
                 ''' We don't remove the data. '''
-                #print(traceback.format_exc())
+                # print(traceback.format_exc())
         
-        for obj in to_be_changed:
-            logger.info(("%s Already exists in DB, skipping...") % obj)
+        for obj in to_discard:
+            # Keys that don't change can be discarded after the check:
+            # logger.info(("%s Already exists in DB & didn't change, skipping...") % obj)
             graph.pop(obj)
         
         return graph
-                
+
+    
+    def map_replacements(self, graph) -> None:
+        for value in graph:
+            if graph[value][4]['deprecated'][1]:
+                try:
+                    keyword = Keyword.objects.get(id=value)
+                    replaced_keyword = Keyword.objects.get(id=graph[value][4]['deprecated'][1])
+                    keyword.replaced_by_id = graph[value][4]['deprecated'][1]
+                    keyword.created_time = BaseModel.now()
+                    keyword.save()
+                    logger.info("Added replacement for: %s" % value)
+                except Exception as e:
+                    logger.error("Could not find replacement for: %s with error: %s" % (value, e))
+                    pass
+
 
     def handle(self):
-        logger.info("Fetching jupo data graph file...")
+        logger.info("Fetching JUPO data graph file...")
         graph = self.fetch_graph()
 
         logger.info("Processing graph data...")
@@ -226,4 +266,7 @@ class NewJupoImporter(Importer):
         self.save_alt_keywords(preprocess_kw)
 
         logger.info("Saving keywords...")
-        self.save_keywords(preprocess_kw)
+        final_graph = self.save_keywords(preprocess_kw)
+
+        logger.info("Mapping replacements...")
+        self.map_replacements(final_graph)
