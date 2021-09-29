@@ -4,14 +4,10 @@
 
 # RDFLIB:
 import rdflib
-from rdflib import RDF
+from rdflib import RDF, URIRef
 from rdflib.namespace import DCTERMS, OWL, SKOS
 
-# HTTP Requests:
-import requests
-
 # Logging:
-import os
 import time
 import logging
 from os import mkdir
@@ -27,8 +23,7 @@ from events.models import Keyword, KeywordLabel, DataSource, BaseModel, Language
 from .base import Importer, register_importer
 
 # Type checking:
-import typing
-from typing import Any, Tuple
+from typing import Any
 
 # Setup Logging:
 if not exists(join(dirname(__file__), 'logs')):
@@ -60,9 +55,40 @@ def fetch_graph() -> dict:
     except Exception as e:
         logger.error("Error while fetching JUPO Graph file: %s" % e)
     # LICENSE http://creativecommons.org/licenses/by/3.0/: https://finto.fi/jupo/fi/
-    logger.info("#2: Graph parsing finished in: %s. Preparing graph..." %
-                time.process_time())
     return graph
+
+
+def process_graph(graph: dict) -> dict:
+    processed = {}
+    for subj_uriRef in graph.subjects(predicate=None, object=SKOS.Concept):
+        subj_type, subj_id = subj_uriRef.split('/')[-2:]
+        if subj_type in ('jupo', 'yso'):
+            formatted_onto = "%s:%s" % (subj_type, subj_id)
+            # Gather labels: altLabel, prefLabel, brower, narrower.
+            sub_skos = {
+                'altLabel': {'fi': None, 'sv': None, 'en': None},
+                'prefLabel': {'fi': None, 'sv': None, 'en': None},
+                'broader': [],
+                'narrower': []
+            }
+            for label, v in sub_skos.items():
+                for obj in graph.objects(subject=subj_uriRef, predicate=SKOS[label]):
+                    if isinstance(v, dict):
+                        v.update(dict({str(obj.language): str(obj.value)}))
+                    else:
+                        v.append(obj)
+            # Some might be deprecated but have no replacement.
+            deprecated = dict({'deprecated': [False, None]})
+            if (subj_uriRef, OWL.deprecated, None) in graph:
+                deprecated['deprecated'][0] = True
+                for subj_uriRef, _, _ in graph.triples((subj_uriRef, DCTERMS.isReplacedBy, None)):
+                    subj_type, subj_id = subj_uriRef.split('/')[-2:]
+                    formatted_obj = "%s:%s" % (subj_type, subj_id)
+                    deprecated['deprecated'][1] = formatted_obj
+                    break
+            processed.update(dict({formatted_onto: [
+                sub_skos['altLabel'], sub_skos['prefLabel'], sub_skos['broader'], sub_skos['narrower'], subj_type, subj_id, deprecated]}))
+    return processed
 
 
 @register_importer
@@ -96,18 +122,18 @@ class JupoImporter(Importer):
         self.data = {
             # YSO, JUPO and the Public DataSource for Organizations model.
             'ds': {
-                'yso': ('yso', 'Yleinen suomalainen ontologia', True),
-                'jupo': ('jupo', 'Julkisen hallinnon palveluontologia', True),
-                'org': ('org', 'Ulkoa tuodut organisaatiotiedot', True),
+                'yso': ('yso', 'TEST Yleinen suomalainen ontologia', True),
+                'jupo': ('jupo', 'TEST Julkisen hallinnon palveluontologia', True),
+                'org': ('org', 'TEST Ulkoa tuodut organisaatiotiedot', True),
             },
             # Public organization class for all instances.
             'orgclass': {
-                'sanasto': ['org:13', '13', 'Sanasto', BaseModel.now(), 'ds_org'],
+                'sanasto': ['org:13', '13', 'SanastoTEST', BaseModel.now(), 'ds_org'],
             },
             # YSO & JUPO organizations for keywords.
             'org': {
-                'yso': ['yso:1200', '1200', 'YSO', BaseModel.now(), 'org:13', 'ds_yso'],
-                'jupo': ['jupo:1300', '1300', 'JUPO', BaseModel.now(), 'org:13', 'ds_jupo'],
+                'yso': ['yso:1200', '1200', 'YSOTEST', BaseModel.now(), 'org:13', 'ds_yso'],
+                'jupo': ['jupo:1300', '1300', 'JUPOTEST', BaseModel.now(), 'org:13', 'ds_jupo'],
             },
             # Attribute name mapping for all due to class related attributes (ex. data_source and organization are necessary).
             'attr_maps': {
@@ -128,23 +154,23 @@ class JupoImporter(Importer):
                 'termobjs': (DataSource, OrganizationClass, Organization)
             },
         }
-
         mapped = list(map(lambda f, fto, mm, atm: [f, fto, self.data['model_maps'][mm], self.data['attr_maps'][atm]],
                       self.data['funcargs']['terms'], self.data['funcargs']['termobjs'], self.data['model_maps'], self.data['attr_maps']))
-
         for args in mapped:
             self.iterator(
                 data=self.data, key=args[0], query=args[1], obj_model=args[2], attr_map=args[3])
-
         logger.info(
             "#1: Setup finished in: %s. Fetching JUPO turtle graph file..." % time.process_time())
-
         self.handler()
 
     def handler(self: 'events.importer.juponew.JupoImporter') -> None:
         # Handler function for passing the graph between functions. More organized at the cost of more function calls.
-        logger.info("Here but not done yet.")
         self.graph = fetch_graph()
+        logger.info("#2: Graph parsing finished in: %s. Preparing graph..." %
+                    time.process_time())
+        self.graph = process_graph(self.graph)
+        logger.info("#3: Graph processing finished in: %s..." %
+                    time.process_time())
 
     # CODE DOCUMENTATION:
 
