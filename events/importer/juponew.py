@@ -23,7 +23,7 @@ from events.models import Keyword, KeywordLabel, DataSource, BaseModel, Language
 from .base import Importer, register_importer
 
 # Type checking:
-from typing import Any
+from typing import TYPE_CHECKING, Any, Tuple, List
 
 # Setup Logging:
 if not exists(join(dirname(__file__), 'logs')):
@@ -58,39 +58,6 @@ def fetch_graph() -> dict:
     return graph
 
 
-def process_graph(graph: dict) -> dict:
-    processed = {}
-    for subj_uriRef in graph.subjects(predicate=None, object=SKOS.Concept):
-        subj_type, subj_id = subj_uriRef.split('/')[-2:]
-        if subj_type in ('jupo', 'yso'):
-            formatted_onto = "%s:%s" % (subj_type, subj_id)
-            # Gather labels: altLabel, prefLabel, brower, narrower.
-            sub_skos = {
-                'altLabel': {'fi': None, 'sv': None, 'en': None},
-                'prefLabel': {'fi': None, 'sv': None, 'en': None},
-                'broader': [],
-                'narrower': []
-            }
-            for label, v in sub_skos.items():
-                for obj in graph.objects(subject=subj_uriRef, predicate=SKOS[label]):
-                    if isinstance(v, dict):
-                        v.update(dict({str(obj.language): str(obj.value)}))
-                    else:
-                        v.append(obj)
-            # Some might be deprecated but have no replacement.
-            deprecated = dict({'deprecated': [False, None]})
-            if (subj_uriRef, OWL.deprecated, None) in graph:
-                deprecated['deprecated'][0] = True
-                for subj_uriRef, _, _ in graph.triples((subj_uriRef, DCTERMS.isReplacedBy, None)):
-                    subj_type, subj_id = subj_uriRef.split('/')[-2:]
-                    formatted_obj = "%s:%s" % (subj_type, subj_id)
-                    deprecated['deprecated'][1] = formatted_obj
-                    break
-            processed.update(dict({formatted_onto: [
-                sub_skos['altLabel'], sub_skos['prefLabel'], sub_skos['broader'], sub_skos['narrower'], subj_type, subj_id, deprecated]}))
-    return processed
-
-
 @register_importer
 class JupoImporter(Importer):
     # Importer class dependant attributes:
@@ -116,7 +83,139 @@ class JupoImporter(Importer):
             except Exception as e:
                 logger.error(e)
 
+    def process_graph(self: 'events.importer.juponew.JupoImporter', graph: dict) -> Tuple[dict, List[Any]]:
+        processed = {}
+        deprecated = []
+        specifications = {
+            # YSO has two types we want based on the metatag. ex: yso-meta1:Concept & yso-meta:Individual
+            'yso': {
+                'types': ('Concept', 'Individual'),
+                'meta': ('yso-meta',),
+            },
+            # JUPO on the other hand only has Concept. ex: jupometa:Concept
+            'jupo': {
+                'types': ('Concept',),
+                'meta': ('jupo-meta',),
+            },
+        }
+        # Loop through all Concepts. Includes deprecated and regular.
+        for subj_uriRef in graph.subjects(predicate=None, object=SKOS.Concept):
+            subj_type, subj_id = subj_uriRef.split('/')[-2:]
+            formatted_onto = "%s:%s" % (subj_type, subj_id)
+            if subj_type in specifications.keys():
+                valid = None
+                sub_skos = {
+                    'altLabel': {'fi': None, 'sv': None, 'en': None},
+                    'prefLabel': {'fi': None, 'sv': None, 'en': None},
+                    'broader': [],
+                    'narrower': [],
+                }
+                for types in specifications[subj_type]['types']:
+                    for meta in specifications[subj_type]['meta']:
+                        mkuriref = rdflib.term.URIRef(
+                            'http://www.yso.fi/onto/%s/%s' % (meta, types))
+                        if (subj_uriRef, None, mkuriref) in graph:
+                            valid = True
+                if valid:
+                    # Gather labels: altLabel, prefLabel, broader, narrower.
+                    for label, v in sub_skos.items():
+                        for obj in graph.objects(subject=subj_uriRef, predicate=SKOS[label]):
+                            if isinstance(v, dict):
+                                v.update(
+                                    dict({str(obj.language): str(obj.value)}))
+                            else:
+                                v.append(obj)
+                    processed.update(dict({formatted_onto: {
+                        'altLabel': sub_skos['altLabel'],
+                        'prefLabel': sub_skos['prefLabel'],
+                        'broader': sub_skos['broader'],
+                        'narrower': sub_skos['narrower'],
+                        'type': subj_type, 'id': subj_id
+                    }}))
+                else:
+                    if (subj_uriRef, OWL.deprecated, None) in graph:
+                        isReplacedBy = None
+                        for _, _, object in graph.triples((subj_uriRef, DCTERMS.isReplacedBy, None)):
+                            st, sid = object.split('/')[-2:]
+                            formatted_obj = "%s:%s" % (st, sid)
+                            isReplacedBy = formatted_obj
+                        deprecated.append([formatted_onto, isReplacedBy])
+        return processed, deprecated
+
+    def save_alt_keywords(self: 'events.importer.juponew.JupoImporter', processed: dict) -> None:
+        for k in processed:
+            for lang in processed[k]['altLabel']:
+                if processed[k]['altLabel'][lang]:
+                    try:
+                        # Check duplicates:
+                        alt_label_exists = KeywordLabel.objects.filter(
+                            name=processed[k]['altLabel'][lang]).exists()
+                        if not alt_label_exists:
+                            language = Language.objects.get(id=lang)
+                            label_object = KeywordLabel(
+                                name=processed[k]['altLabel'][lang], language=language)
+                            label_object.save()
+                    except Exception as e:
+                        logger.error(e)
+
+    def save_keywords(self: 'events.importer.juponew.JupoImporter', processed: dict) -> None:
+        for k, v in processed.items():
+            try:
+                if v['type'] == 'jupo':
+                    keyword = Keyword(data_source=getattr(
+                        self, 'data_source_jupo'))
+                else:
+                    keyword = Keyword(data_source=getattr(self, 'data_source'))
+                keyword.id = k
+                keyword.created_time = BaseModel.now()
+                for lang, lang_val in v['prefLabel'].items():
+                    langformat = 'name_%s' % lang
+                    setattr(keyword, langformat, lang_val)
+                keyword.broader = v['broader']
+                keyword.narrower = v['narrower']
+                keyword.save()
+                alts = []
+                # Link ManyToMany relation alt label values.
+                for alt_lang in v['altLabel']:
+                    alt_obj = v['altLabel'][alt_lang]
+                    cur_obj = None
+                    try:
+                        cur_obj = KeywordLabel.objects.filter(
+                            name=alt_obj, language_id=alt_lang).first()
+                    except Exception as e:
+                        logger.error(e)
+                    if cur_obj:
+                        alts.append(cur_obj)
+                if alts:
+                    keyword.alt_labels.add(*alts)
+                    keyword.save()
+            except Exception as e:
+                logger.error(e)
+
+    def mark_deprecated(self: 'events.importer.juponew.JupoImporter', deprecated: dict) -> None:
+        for value in deprecated:
+            onto = value[0]
+            replacement = value[1]
+            try:
+                keyword = Keyword.objects.get(id=onto)
+                if keyword:
+                    # try:
+                    #    replaced_keyword = Keyword.objects.get(id=replacement)
+                    #    if replaced_keyword:
+                    #        keyword.replaced_by_id = replaced_keyword
+                    # except:
+                    #    logger.warn(
+                    #        'Could not find replacement key for %s' % onto)
+                    #    continue
+                    keyword.deprecated = True
+                    keyword.created_time = BaseModel.now()
+                    keyword.save()
+                    logger.info("Marked deprecated: %s" % value[0])
+            except:
+                pass
+
     # Setup our class attributes & Add to DB.
+
     def setup(self) -> None:
         # Data mapped by models order:
         self.data = {
@@ -168,8 +267,17 @@ class JupoImporter(Importer):
         self.graph = fetch_graph()
         logger.info("#2: Graph parsing finished in: %s. Preparing graph..." %
                     time.process_time())
-        self.graph = process_graph(self.graph)
+        self.processed, self.deprecated = self.process_graph(graph=self.graph)
         logger.info("#3: Graph processing finished in: %s..." %
+                    time.process_time())
+        self.save_alt_keywords(processed=self.processed)
+        logger.info("#4: Alt keyword saving finished in: %s..." %
+                    time.process_time())
+        self.save_keywords(processed=self.processed)
+        logger.info("#5: Saved non-deprecated keywords in: %s..." %
+                    time.process_time())
+        self.mark_deprecated(self.deprecated)
+        logger.info("#6: Handled deprecated keywords in: %s..." %
                     time.process_time())
 
     # CODE DOCUMENTATION:
