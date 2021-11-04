@@ -482,7 +482,8 @@ def test__upload_a_non_valid_image(api_client, list_url, user, organization):
 def test__upload_an_invalid_dict(api_client, list_url, user, organization):
     organization.admin_users.add(user)
     api_client.force_authenticate(user)
-    response = api_client.post(list_url, {'name': 'right', 'key': 'wrong'})
+
+    response = api_client.post(list_url, {'name': {'fi': 'right'}, 'key': 'wrong'}, format='json')
     assert response.status_code == 400
     for line in response.data:
         assert 'You must provide either image or url' in line
@@ -493,27 +494,29 @@ def test_set_image_license(api_client, list_url, image_data, image_url, user, or
     organization.admin_users.add(user)
     api_client.force_authenticate(user)
 
+    image_url['name'] = {'fi': 'bla bla'}
     # an image is posted without a license, expect cc_by
-    response = api_client.post(list_url, image_url)
+    response = api_client.post(list_url, image_url, format='json')
     assert response.status_code == 201
     new_image = Image.objects.last()
     assert new_image.license_id == 'cc_by'
 
     # an image is posted with event_only license, expect change
     image_data['license'] = 'event_only'
-    response = api_client.post(list_url, image_data)
+    image_data['name'] = {'fi': 'bla bla'}
+    response = api_client.post(list_url, image_data, format='json', encoding='utf-8')
     assert response.status_code == 201
     new_image = Image.objects.last()
     assert new_image.license_id == 'event_only'
 
     # the same image is put without a license, expect event_only license not changed
-    response = api_client.put('%s%s/' % (list_url, new_image.id), {'name': 'this is needed'})
+    response = api_client.put('%s%s/' % (list_url, new_image.id), {'name': {'fi': 'this is needed'}})
     assert response.status_code == 200
     new_image.refresh_from_db()
     assert new_image.license_id == 'event_only'
 
     # the same image is put with cc_by license, expect change
-    response = api_client.put('%s%s/' % (list_url, new_image.id), {'name': 'this is needed', 'license': 'cc_by'})
+    response = api_client.put('%s%s/' % (list_url, new_image.id), {'name': {'fi': 'this is needed'}, 'license': 'cc_by'})
     assert response.status_code == 200
     new_image.refresh_from_db()
     assert new_image.license_id == 'cc_by'
