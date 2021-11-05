@@ -65,6 +65,12 @@ def assert_event_fields_exist(data, version='v1'):
         'videos',
         'replaced_by',
         'deleted',
+
+        # New
+        'is_virtualevent',
+        'virtualevent_url',
+        'sub_event_type',
+        'is_owner',
     )
     if version == 'v0.1':
         fields += (
