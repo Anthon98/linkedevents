@@ -16,16 +16,10 @@ jobs:
     
     strategy:
       matrix:
+        python-version: ["3.6", "3.7", "3.8", "3.9"]
         include:
           - arch: aarch64
             distro: ubuntu18.04
-          - arch: armv7
-            distro: ubuntu18.04
-          - arch: s390x
-            distro: ubuntu18.04
-          - arch: ppc64le
-            distro: ubuntu18.04
-        python-version: ["3.6", "3.7", "3.8", "3.9"]
 
     services:
       postgres:
@@ -49,6 +43,8 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
+          arch: ${{ matrix.arch }}
+          distro: ${{ matrix.distro }}
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
