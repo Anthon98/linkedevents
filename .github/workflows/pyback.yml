@@ -55,9 +55,9 @@ jobs:
       - name: Install Libraries
         run: |
           sudo apt-get install nginx virtualenv python3-virtualenv python3-dev python3-pip build-essential libpq-dev -y
-          sudo -u postgres createdb -O linkedevents -T template0 -l fi_FI.UTF-8 linkedevents
-          sudo -u postgres psql linkedevents -c "CREATE EXTENSION postgis;"
-          sudo -u postgres psql linkedevents -c "CREATE EXTENSION hstore;"
+          sudo -h localhost -u postgres createdb -O linkedevents -T template0 -l fi_FI.UTF-8 linkedevents
+          sudo -h localhost -u postgres psql linkedevents -c "CREATE EXTENSION postgis;"
+          sudo -h localhost -u postgres psql linkedevents -c "CREATE EXTENSION hstore;"
 
       - name: Assign FIN Locale
         run: |
