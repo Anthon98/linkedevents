@@ -54,7 +54,7 @@ jobs:
 
       - name: Install Libraries
         run: |
-           sudo apt-get install postgresql postgis nginx virtualenv python3-virtualenv python3-dev python3-pip build-essential libpq-dev -y
+           sudo apt-get install nginx virtualenv python3-virtualenv python3-dev python3-pip build-essential libpq-dev -y
       
       - name: Assign FIN Locale
         run: |
