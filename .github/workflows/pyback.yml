@@ -51,7 +51,6 @@ jobs:
           sudo apt-get update
           sudo apt-get upgrade
           sudo apt-get install postgresql postgis nginx virtualenv python3-virtualenv python3-dev python3-pip build-essential libpq-dev -y
-          psql -h localhost -U linkedevents -d linkedevents -c "CREATE EXTENSION postgis;"
           psql -h localhost -U linkedevents -d linkedevents -c "CREATE EXTENSION hstore;"
         env:
           PGPASSWORD: linkedevents
