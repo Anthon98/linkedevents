@@ -29,7 +29,7 @@ jobs:
           POSTGRES_PASSWORD: linkedevents
           POSTGRES_DB: linkedevents
           DEBUG: true
-          SECRET_KEY: linkedevents_secret
+          SECRET_KEY: le_secret
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -47,49 +47,33 @@ jobs:
           distro: ${{ matrix.distro }}
           python-version: ${{ matrix.python-version }}
 
-      - name: Update & Upgrade Linux
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get upgrade
-
-      - name: Install Libraries
-        run: |
-          sudo apt-get install nginx virtualenv python3-virtualenv python3-dev python3-pip build-essential libpq-dev -y
-          psql -h localhost -U linkedevents -d template0 -c "CREATE EXTENSION hstore;"
-          psql -h localhost -U linkedevents -d linkedevents -c "CREATE EXTENSION hstore;"
+          sudo apt-get install gettext python-dev libpq-dev gdal-bin -y
+          psql -h localhost -U linkedevents -d linkedevents -c "create extension hstore;"
         env:
           PGPASSWORD: linkedevents
-
-      - name: Assign FIN Locale
-        run: |
-          sudo locale-gen fi_FI.UTF-8
-      
       - name: Install requirements
         run: |
           python3 -m pip install --upgrade pip
+          pip install wheel
           pip install -r requirements.txt
-
+          pip install -r requirements-dev.txt
       - name: Apply migrations
         env:
           DATABASE_URL: postgis://linkedevents:linkedevents@localhost/linkedevents
           DEBUG: true
-          SECRET_KEY: linkedevents_secret
+          SECRET_KEY: le_secret
         run: |
           python3 manage.py migrate
-          
-      - name: Sync translations
-        env:
-          DATABASE_URL: postgis://linkedevents:linkedevents@localhost/linkedevents
-          DEBUG: true
-          SECRET_KEY: linkedevents_secret
+      - name: Compile translations
         run: |
-          python3 manage.py sync_translation_fields
-       
-
+          python3 manage.py compilemessages --locale en --locale fi --locale sv
       - name: Run tests
         env:
           DATABASE_URL: postgis://linkedevents:linkedevents@localhost/linkedevents
           DEBUG: true
-          SECRET_KEY: linkedevents_secret
+          SECRET_KEY: le_secret
         run: |
-          pytest --cov . --doctest-modules
+          pytest
